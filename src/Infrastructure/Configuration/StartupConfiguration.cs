@@ -1,10 +1,12 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Configuration
 {
+    using Sqlbi.Bravo.Infrastructure.Configuration.Settings;
     using Sqlbi.Bravo.Infrastructure.Helpers;
     using Sqlbi.Bravo.Infrastructure.Windows.Interop;
     using System;
     using System.IO;
     using System.Net;
+    using System.Net.Http;
     using System.Runtime;
     using System.Windows.Forms;
 
@@ -16,12 +18,18 @@
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            ConfigureProxy();
             ConfigureDirectories();
             ConfigureMulticoreJit();
             ConfigureSecurityProtocols();
             ConfigureProcessDpiAwareness();
 
             WebView2Helper.EnsureRuntimeIsInstalled();
+        }
+
+        private static void ConfigureProxy()
+        {
+            HttpClient.DefaultProxy = WebProxyWrapper.Current;
         }
 
         private static void ConfigureDirectories()

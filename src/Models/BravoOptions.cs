@@ -11,14 +11,17 @@
         [JsonPropertyName("telemetryEnabled")]
         public bool TelemetryEnabled { get; set; } = AppEnvironment.TelemetryEnabledDefault;
 
+        [JsonPropertyName("diagnosticLevel")]
+        public DiagnosticLevelType DiagnosticLevel { get; set; } = DiagnosticLevelType.None;
+
         [JsonPropertyName("updateChannel")]
         public UpdateChannelType UpdateChannel { get; set; } = UpdateChannelType.Stable;
 
         [JsonPropertyName("theme")]
         public ThemeType Theme { get; set; } = ThemeType.Auto;
 
-        [JsonPropertyName("diagnosticLevel")]
-        public DiagnosticLevelType DiagnosticLevel { get; set; } = DiagnosticLevelType.None;
+        [JsonPropertyName("proxy")]
+        public ProxySettings? Proxy { get; set; }
 
         [JsonPropertyName("customOptions")]
         public JsonElement? CustomOptions { get; set; }
@@ -31,6 +34,7 @@
                 DiagnosticLevel = UserPreferences.Current.DiagnosticLevel,
                 CustomOptions = UserPreferences.Current.CustomOptions,
                 UpdateChannel = UserPreferences.Current.UpdateChannel,
+                Proxy = UserPreferences.Current.Proxy,
                 Theme = UserPreferences.Current.Theme,
             };
 
@@ -44,6 +48,7 @@
             UserPreferences.Current.CustomOptions = CustomOptions;
             UserPreferences.Current.UpdateChannel = UpdateChannel;
             UserPreferences.Current.Theme = Theme;
+            UserPreferences.Current.Proxy = Proxy;
             UserPreferences.Save();
         }
     }
