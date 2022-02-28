@@ -1,7 +1,7 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Configuration
 {
-    using Sqlbi.Bravo.Infrastructure.Configuration.Settings;
     using Sqlbi.Bravo.Infrastructure.Helpers;
+    using Sqlbi.Bravo.Infrastructure.Services;
     using Sqlbi.Bravo.Infrastructure.Windows.Interop;
     using System;
     using System.IO;

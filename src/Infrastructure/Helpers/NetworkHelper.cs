@@ -28,6 +28,48 @@
             return false;
         }
 
+        public static bool IsLocal(Uri host)
+        {
+            if (host.IsLoopback)
+                return true;
+
+            if (IPAddress.TryParse(host.Host, out var address))
+            {
+                if (IPAddress.IsLoopback(address))
+                    return true;
+
+                var isAddressLocal = IsAddressLocal(address);
+                return isAddressLocal;
+            }
+
+            var fqdnDelimiterIndex = host.Host.IndexOf('.');
+            if (fqdnDelimiterIndex == -1)
+                return true;
+
+            var domainNameSuffix = "." + IPGlobalProperties.GetIPGlobalProperties().DomainName;
+            if (domainNameSuffix.Length == host.Host.Length - fqdnDelimiterIndex)
+            {
+                var isLocalHostName = string.Compare(domainNameSuffix, 0, host.Host, fqdnDelimiterIndex, domainNameSuffix.Length, StringComparison.OrdinalIgnoreCase) == 0;
+                return isLocalHostName;
+            }
+
+            return false;
+        }
+
+        public static bool IsAddressLocal(IPAddress address)
+        {
+            var hostName = Dns.GetHostName();
+            var hostEntry = Dns.GetHostEntry(hostName);
+
+            foreach (var hostAddress in hostEntry.AddressList)
+            {
+                if (address.Equals(hostAddress))
+                    return true;
+            }
+
+            return false;
+        }
+
         public static IPAddress GetLoopbackAddress()
         {
             if (Socket.OSSupportsIPv6)

@@ -6,11 +6,8 @@
 
     public class ProxySettings
     {
-        /// <summary>
-        /// Indicates whether to automatically detect and use the system proxy configuration instead of using a provided one
-        /// </summary>
-        [JsonPropertyName("useSystemProxy")]
-        public bool UseSystemProxy { get; set; } = true;
+        [JsonPropertyName("proxyType")]
+        public ProxyType ProxyType { get; set; } = ProxyType.System;
 
         /// <summary>
         /// Indicate whether the <see cref="CredentialCache.DefaultCredentials"/> system credentials of the application are sent with requests.
@@ -37,24 +34,30 @@
         /// Indicates whether to bypass the proxy server for local addresses. The default value is true.
         /// </summary>
         [JsonPropertyName("bypassOnLocal")]
-        public bool BypassOnLocal { get; set; } = false;
+        public bool BypassOnLocal { get; set; } = true;
 
         /// <summary>
         /// An array of addresses that do not use the proxy server
         /// </summary>
         [JsonPropertyName("bypassList")]
         public string[]? BypassList { get; set; }
+    }
 
-        //[JsonIgnore]
-        //internal string? WebView2CommandlineOptions
-        //{
-        //    get 
-        //    {
-        //        // TODO: https://docs.microsoft.com/en-us/deployedge/edge-learnmore-cmdline-options-proxy-settings?WT.mc_id=DT-MVP-5003235#command-line-options-for-proxy-settings
-        //        throw new NotImplementedException();
-        //    }
-        //}
+    public enum ProxyType
+    {
+        /// <summary>
+        /// Specifies not to use a Proxy, even if the system is otherwise configured to use one. It overrides and ignore any other proxy settings that are provided
+        /// </summary>
+        None = 0,
 
-        //public bool HasUsernameAndPassword => !Username.IsNullOrEmpty() && !Password.IsNullOrEmpty();
+        /// <summary>
+        /// Specifies to try and automatically detect the system proxy configuration. This is the default value
+        /// </summary>
+        System = 1,
+
+        /// <summary>
+        /// Specifies to use a custom proxy configuration and applies all other proxy settings that are provided
+        /// </summary>
+        Custom = 2,
     }
 }

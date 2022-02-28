@@ -7,6 +7,7 @@
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
 
     internal static class UserPreferences
     {
@@ -18,6 +19,7 @@
             _settings = new Lazy<UserSettings>(CreateInstance, isThreadSafe: true);
             _serializationOptions = new()
             {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 ReadCommentHandling = JsonCommentHandling.Skip,
                 AllowTrailingCommas = true,
                 WriteIndented = true,
