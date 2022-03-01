@@ -3,13 +3,18 @@
     using Sqlbi.Bravo.Infrastructure.Windows.Interop;
     using System;
     using System.ComponentModel;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Net;
     using System.Runtime.InteropServices;
     using System.Text;
+    using System.Text.Json.Serialization;
 
     internal class CredentialManager
     {
-        public static GenericCredential? ReadCredential(string targetName)
+        public static bool TryGetCredential(string targetName, [MaybeNullWhen(false)] out GenericCredential credential)
         {
+            credential = null;
+
             var retval = Advapi32.CredReadW(targetName, Advapi32.CREDENTIAL_TYPE.CRED_TYPE_GENERIC, flags: 0, out var handle);
             try
             {
@@ -22,8 +27,8 @@
                         ? Marshal.PtrToStringUni(credentialStruct.CredentialBlob, (int)credentialStruct.CredentialBlobSize / 2) 
                         : null;
 
-                    var credential = new GenericCredential(targetName, userName, password);
-                    return credential;
+                    credential = new GenericCredential(targetName, userName, password);
+                    return true;
                 }
             }
             finally
@@ -31,7 +36,7 @@
                 handle.Dispose();
             }
 
-            return null;
+            return false;
         }
 
         public static void WriteCredential(string targetName, string userName, string password, Advapi32.CRED_PERSIST persist = Advapi32.CRED_PERSIST.CRED_PERSIST_LOCAL_MACHINE)
@@ -110,6 +115,25 @@
 
         public string? UserName { get; init; }
 
+        [JsonIgnore]
         public string? Password { get; init; }
+
+        public NetworkCredential? ToNetworkCredential()
+        {
+            var userName = UserName;
+            var password = Password;
+            var domain = (string?)null;
+
+            var userNameTokens = UserName?.Split('\\');
+            if (userNameTokens?.Length == 2)
+            {
+                // DOMAIN\USER
+                domain = userNameTokens[0];
+                userName = userNameTokens[1];
+            }
+
+            var credential = new NetworkCredential(userName, password, domain);
+            return credential;
+        }
     }
 }

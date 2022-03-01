@@ -21,15 +21,6 @@
         [JsonPropertyName("address")]
         public Uri? Address { get; set; }
 
-        [JsonPropertyName("domain")]
-        public string? Domain { get; set; }
-
-        [JsonPropertyName("userName")]
-        public string? UserName { get; set; }
-
-        [JsonPropertyName("password")]
-        public string? Password { get; set; }
-
         /// <summary>
         /// Indicates whether to bypass the proxy server for local addresses. The default value is true.
         /// </summary>

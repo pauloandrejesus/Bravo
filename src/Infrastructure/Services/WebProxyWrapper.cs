@@ -4,6 +4,7 @@
     using Sqlbi.Bravo.Infrastructure.Configuration.Settings;
     using Sqlbi.Bravo.Infrastructure.Extensions;
     using Sqlbi.Bravo.Infrastructure.Helpers;
+    using Sqlbi.Bravo.Infrastructure.Security;
     using System;
     using System.Collections.Generic;
     using System.Linq;
@@ -97,16 +98,18 @@
                         if (_customProxy is null)
                         {
                             var settings = UserPreferences.Current.Proxy;
+                            var credentials = CredentialCache.DefaultCredentials;
 
-                            var credentials = settings.UseDefaultCredentials
-                                ? new NetworkCredential(settings.UserName, settings.Password, settings.Domain)
-                                : CredentialCache.DefaultCredentials;
-                            
+                            if (!settings.UseDefaultCredentials && CredentialManager.TryGetCredential(targetName: AppEnvironment.CredentialManagerProxyCredentialName, out var genericCredential))
+                            {
+                                credentials = genericCredential.ToNetworkCredential();
+                            }
+
                             var bypassList = settings.BypassList?.ToList();
                             _ = bypassList?.RemoveAll("<-loopback>".EqualsI); // Remove this special proxy bypass rule which has the effect of subtracting the implicit loopback rules
-                            var bypassListCleaned = bypassList?.ToArray();
+                            var bypassListSecured = bypassList?.ToArray();
 
-                            _customProxy = new WebProxy(settings.Address, settings.BypassOnLocal, bypassListCleaned, credentials);
+                            _customProxy = new WebProxy(settings.Address, settings.BypassOnLocal, bypassListSecured, credentials);
                         }
                     }
                 }
