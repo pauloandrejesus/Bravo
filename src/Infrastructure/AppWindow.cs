@@ -20,6 +20,7 @@
     internal class AppWindow : IDisposable
     {
         private readonly IHost _host;
+        private readonly Uri _hostUri;
         private readonly PhotinoWindow _window;
         private readonly StartupSettings _startupSettings;
 
@@ -28,12 +29,24 @@
         public AppWindow(IHost host)
         {
             _host = host;
-            _window = CreateWindow();
 
+            _hostUri = GetHostUri();
+            _window = CreateWindow();
+            _startupSettings = GetStartupSettings();
+        }
+
+        private Uri GetHostUri()
+        {
+            var uri = _host.GetListeningAddresses().Single(); // single address expected here
+            return uri;
+        }
+
+        private StartupSettings GetStartupSettings()
+        {
             var startupSettingsOptions = _host.Services.GetService(typeof(IOptions<StartupSettings>)) as IOptions<StartupSettings>;
             BravoUnexpectedException.ThrowIfNull(startupSettingsOptions);
 
-            _startupSettings = startupSettingsOptions.Value;
+            return startupSettingsOptions.Value;
         }
 
         private PhotinoWindow CreateWindow()
@@ -47,6 +60,8 @@
             var devToolsEnabled = false;
             var logVerbosity = 0;
 #endif
+            WebView2Helper.SetWebView2ProxyServer(_hostUri);
+
             var indexHtml = ThemeHelper.ShouldUseDarkMode(UserPreferences.Current.Theme)
                 ? "wwwroot/index-dark.html"
                 : "wwwroot/index.html";
@@ -78,9 +93,9 @@
             var config = new
             {
 #if DEBUG
-                debug = true,
+                debug = false,
 #endif
-                address = GetAddress(),
+                address = _hostUri,
                 token = AppEnvironment.ApiAuthenticationToken,
                 version = AppEnvironment.ApplicationProductVersion,
                 build = AppEnvironment.ApplicationFileVersion,
@@ -100,14 +115,6 @@
             var stream = new MemoryStream(Encoding.UTF8.GetBytes(script));
 
             return stream;
-
-            string GetAddress()
-            {
-                var address = _host.GetListeningAddresses().Single(); // single address expected here
-                var addressString = address.ToString();
-                
-                return addressString;
-            }
         }
 
         //private void OnWindowCreating(object? sender, EventArgs e)

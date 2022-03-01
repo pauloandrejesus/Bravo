@@ -49,6 +49,13 @@
             return versionInfo;
         }
 
+        public static void SetWebView2ProxyServer(Uri proxyUri)
+        {
+            var proxyArguments = $"--proxy-server=\"{ proxyUri }\"";
+
+            Environment.SetEnvironmentVariable(EnvironmentVariableAdditionalBrowserArguments, proxyArguments, EnvironmentVariableTarget.Process);
+        }
+
         public static void SetWebView2CmdlineProxyArguments(ProxySettings? settings, HttpSystemProxy systemProxy)
         {
             // Command-line options for proxy settings

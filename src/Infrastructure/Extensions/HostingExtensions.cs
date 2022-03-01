@@ -1,10 +1,12 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Extensions
 {
     using Hellang.Middleware.ProblemDetails;
+    using Microsoft.AspNetCore.Builder;
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.AspNetCore.Hosting.Server;
     using Microsoft.AspNetCore.Hosting.Server.Features;
     using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Routing;
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Hosting;
@@ -13,12 +15,16 @@
     using Sqlbi.Bravo.Infrastructure.Authentication;
     using Sqlbi.Bravo.Infrastructure.Configuration.Options;
     using Sqlbi.Bravo.Infrastructure.Helpers;
+    using Sqlbi.Bravo.Infrastructure.Middleware;
     using System;
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Net.Http;
     using System.Net.Sockets;
     using System.Reflection;
+    using Yarp.ReverseProxy.Forwarder;
     using AMO = Microsoft.AnalysisServices;
 
     internal static class HostingExtensions
@@ -181,6 +187,35 @@
 
                 return new WritableOptions<T>(environment, configuration, options, section.Key, file);
             });
+        }
+
+        public static IEndpointConventionBuilder MapAndConfigureReverseProxy(this IEndpointRouteBuilder endpoints, IHttpForwarder forwarder)
+        {
+            var httpClient = new HttpMessageInvoker(new SocketsHttpHandler()
+            {
+                UseProxy = false,
+                AllowAutoRedirect = false,
+                AutomaticDecompression = DecompressionMethods.None,
+                UseCookies = false
+            });
+
+            var transformer = new ReverseProxyTelemetryTransformer(); // or HttpTransformer.Default;
+            var requestConfig = new ForwarderRequestConfig();
+
+            var conventionBuilder = endpoints.Map($"{ReverseProxyTelemetryTransformer.PathSegments}{{**slug}}", async (httpContext) =>
+            {
+                var forwarderError = await forwarder.SendAsync(httpContext, ReverseProxyTelemetryTransformer.ForwarderDestinationPrefix, httpClient, requestConfig, transformer);
+                if (forwarderError != ForwarderError.None)
+                {
+                    var errorFeature = httpContext.GetForwarderErrorFeature();
+                    if (errorFeature?.Exception is not null)
+                    {
+                        throw errorFeature.Exception;
+                    }
+                }
+            });
+
+            return conventionBuilder;
         }
 
         /// <summary>

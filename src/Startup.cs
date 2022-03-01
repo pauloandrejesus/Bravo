@@ -12,8 +12,9 @@
     using Sqlbi.Bravo.Infrastructure.Helpers;
     using Sqlbi.Bravo.Services;
     using System.Text.Json.Serialization;
+    using Yarp.ReverseProxy.Forwarder;
 
-    internal class Startup
+    internal partial class Startup
     {
         private const string CorsLocalhostOnlyPolicy = "AllowLocalWebAPI";
         private const string CorsLocalhostOrigin = "null";
@@ -77,6 +78,7 @@
 #if DEBUG
             services.AddAndConfigureSwaggerGen();
 #endif
+            services.AddHttpForwarder();
             services.AddHttpClient();
             services.AddOptions<StartupSettings>().Configure((settings) => settings.FromCommandLineArguments()); //.ValidateDataAnnotations();
             services.AddOptions<TelemetryConfiguration>().Configure((configuration) => TelemetryHelper.Configure(configuration));
@@ -92,7 +94,7 @@
             // services.AddHostedService<ApplicationInstanceHostedService>();
         }
 
-        public void Configure(IApplicationBuilder application, IWebHostEnvironment environment)
+        public void Configure(IApplicationBuilder application, IWebHostEnvironment environment, IHttpForwarder forwarder)
         {
 #if DEBUG
             application.UseSwagger();
@@ -103,6 +105,7 @@
             application.UseCors(CorsLocalhostOnlyPolicy); // this call must appear after UseRouting(), but before UseAuthorization() and UseEndpoints() for the middleware to function correctly
             application.UseAuthentication();
             application.UseAuthorization(); // this call must appear after UseRouting(), but before UseEndpoints() for the middleware to function correctly
+            // application.UseReverseProxy();
 
             application.UseEndpoints((endpoints) =>
             {
@@ -112,10 +115,7 @@
                 // Map controllers and marks them as RequireAuthorization so that all requests must be authorized
                 endpoints.MapControllers().RequireAuthorization();
 #endif
-                //endpoints.MapGet("/", async context =>
-                //{
-                //    await context.Response.WriteAsync($"Sqlbi.Bravo API on {Environment.MachineName}");
-                //});
+                endpoints.MapAndConfigureReverseProxy(forwarder);
             });
         }
     }
