@@ -2,9 +2,6 @@
 {
     using Sqlbi.Bravo.Infrastructure.Configuration;
     using Sqlbi.Bravo.Infrastructure.Configuration.Settings;
-    using Sqlbi.Bravo.Infrastructure.Extensions;
-    using Sqlbi.Bravo.Infrastructure.Helpers;
-    using Sqlbi.Bravo.Infrastructure.Security;
     using System;
     using System.Collections.Generic;
     using System.Linq;
@@ -30,7 +27,7 @@
         {
             _systemProxy = new HttpSystemProxy();
 
-            WebView2Helper.SetWebView2CmdlineProxyArguments(UserPreferences.Current.Proxy, (HttpSystemProxy)_systemProxy);
+            //WebView2Helper.SetWebView2CmdlineProxyArguments(UserPreferences.Current.Proxy, (HttpSystemProxy)_systemProxy);
         }
 
         #region IWebProxy
@@ -70,7 +67,7 @@
 
         private IWebProxy GetWebProxy()
         {
-            if (UserPreferences.Current.Proxy is null || UserPreferences.Current.Proxy.ProxyType == ProxyType.System)
+            if (UserPreferences.Current.Proxy is null || UserPreferences.Current.Proxy.ProxyType == ProxyType.System || UserPreferences.Current.Proxy.Address is null)
             {
                 return _systemProxy;
             }
@@ -97,19 +94,10 @@
                     {
                         if (_customProxy is null)
                         {
-                            var settings = UserPreferences.Current.Proxy;
-                            var credentials = CredentialCache.DefaultCredentials;
+                            var credentials = UserPreferences.Current.Proxy.GetCredentials();
+                            var bypassList = UserPreferences.Current.Proxy.GetSafeBypassList();
 
-                            if (!settings.UseDefaultCredentials && CredentialManager.TryGetCredential(targetName: AppEnvironment.CredentialManagerProxyCredentialName, out var genericCredential))
-                            {
-                                credentials = genericCredential.ToNetworkCredential();
-                            }
-
-                            var bypassList = settings.BypassList?.ToList();
-                            _ = bypassList?.RemoveAll("<-loopback>".EqualsI); // Remove this special proxy bypass rule which has the effect of subtracting the implicit loopback rules
-                            var bypassListSecured = bypassList?.ToArray();
-
-                            _customProxy = new WebProxy(settings.Address, settings.BypassOnLocal, bypassListSecured, credentials);
+                            _customProxy = new WebProxy(UserPreferences.Current.Proxy.Address, UserPreferences.Current.Proxy.BypassOnLocal, bypassList, credentials);
                         }
                     }
                 }

@@ -1,6 +1,9 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Configuration.Settings
 {
+    using Sqlbi.Bravo.Infrastructure.Extensions;
+    using Sqlbi.Bravo.Infrastructure.Security;
     using System;
+    using System.Linq;
     using System.Net;
     using System.Text.Json.Serialization;
 
@@ -32,6 +35,29 @@
         /// </summary>
         [JsonPropertyName("bypassList")]
         public string[]? BypassList { get; set; }
+
+        internal ICredentials? GetCredentials()
+        {
+            if (!UseDefaultCredentials)
+            {
+                if (CredentialManager.TryGetCredential(targetName: AppEnvironment.CredentialManagerProxyCredentialName, out var genericCredential))
+                {
+                    var credentials = genericCredential.ToNetworkCredential();
+                    return credentials;
+                }
+                
+            }
+
+            return CredentialCache.DefaultCredentials;
+        }
+
+        internal string[]? GetSafeBypassList()
+        {
+            var bypassList = BypassList?.ToList();
+            _ = bypassList?.RemoveAll("<-loopback>".EqualsI); // Remove this special proxy bypass rule which has the effect of subtracting the implicit loopback rules
+            
+            return bypassList?.ToArray();
+        }
     }
 
     public enum ProxyType
