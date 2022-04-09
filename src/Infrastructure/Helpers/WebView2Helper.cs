@@ -93,7 +93,7 @@ Choose an option to proceed with the installation:",
                     // default to Environment.Exit
                     break;
                 default:
-                    throw new BravoUnexpectedException($"Unexpected { nameof(TaskDialogButton) } result ({ dialogButton.Tag })");
+                    throw new BravoUnexpectedInvalidOperationException($"Unhandled { nameof(TaskDialogButton) } result ({ dialogButton.Tag })");
             }
 
             Environment.Exit(NativeMethods.NO_ERROR);
