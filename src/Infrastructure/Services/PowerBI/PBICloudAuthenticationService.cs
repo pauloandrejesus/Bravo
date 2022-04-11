@@ -4,6 +4,8 @@
     using Sqlbi.Bravo.Infrastructure;
     using Sqlbi.Bravo.Infrastructure.Configuration;
     using Sqlbi.Bravo.Infrastructure.Helpers;
+    using Sqlbi.Bravo.Infrastructure.Models;
+    using Sqlbi.Bravo.Infrastructure.Models.PBICloud;
     using System;
     using System.Linq;
     using System.Threading;
@@ -11,24 +13,21 @@
 
     public interface IPBICloudAuthenticationService
     {
-        AuthenticationResult? Authentication { get; }
+        IAuthenticationResult? AuthenticationResult { get; }
 
         Uri TenantCluster { get; }
 
-        Task AcquireTokenAsync(bool silent = false, string? loginHint = null, TimeSpan? timeout = null);
+        Task SignInAsync(string userPrincipalName, CancellationToken cancellationToken);
 
-        Task<bool> RefreshTokenAsync();
-
-        Task ClearTokenCacheAsync();
+        Task SignOutAsync(CancellationToken cancellationToken);
     }
 
-    internal class PBICloudAuthenticationService : IPBICloudAuthenticationService
+    internal class PBICloudAuthenticationService : IPBICloudAuthenticationService, IDisposable
     {
         private const string MicrosoftAccountOnlyQueryParameter = "msafed=0"; // Restrict logins to only AAD based organizational accounts
 
-        private readonly static SemaphoreSlim _authenticationSemaphore = new(1, 1); // TODO: dispose
-        private readonly static SemaphoreSlim _publicClientSemaphore = new(1, 1); // TODO: dispose
         private readonly IPBICloudSettingsService _pbicloudSettings;
+        private readonly SemaphoreSlim _authenticationSemaphore = new(1, 1);
 
         private IPublicClientApplication? _publicClient;
 
@@ -46,18 +45,43 @@
             }
         }
 
-        public AuthenticationResult? Authentication { get; private set; }
+        public IAuthenticationResult? AuthenticationResult { get; private set; }
 
         public Uri TenantCluster => new(_pbicloudSettings.TenantCluster.FixedClusterUri);
 
-        public async Task ClearTokenCacheAsync()
+        public async Task SignInAsync(string userPrincipalName, CancellationToken cancellationToken)
         {
-            await _authenticationSemaphore.WaitAsync().ConfigureAwait(false);
+            await _authenticationSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                Authentication = null;
+                await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
-                await EnsureInitializedAsync().ConfigureAwait(false);
+                using var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cancellationTokenSource.CancelAfter(AppEnvironment.MSALSignInTimeout);
+
+                var previousAuthentication= AuthenticationResult;
+                AuthenticationResult = await AcquireTokenAsync(userPrincipalName, cancellationTokenSource.Token).ConfigureAwait(false);
+
+                var accountChanged = !AuthenticationResult.Equals(previousAuthentication);
+                if (accountChanged)
+                { 
+                    await _pbicloudSettings.RefreshAsync(AuthenticationResult.AccessToken, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _authenticationSemaphore.Release();
+            }
+        }
+
+        public async Task SignOutAsync(CancellationToken cancellationToken)
+        {
+            await _authenticationSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                AuthenticationResult = null;
+
+                await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
                 var accounts = (await PublicClient.GetAccountsAsync().ConfigureAwait(false)).ToArray();
 
@@ -72,67 +96,21 @@
             }
         }
 
-        public async Task<bool> RefreshTokenAsync()
+        private async Task<IAuthenticationResult> AcquireTokenAsync(string? loginHint, CancellationToken cancellationToken)
         {
-            try
-            {
-                await AcquireTokenAsync(silentOnly: true).ConfigureAwait(false);
+            // TODO: Acquire a token using WAM https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-desktop-acquire-token-wam
+            // TODO: Acquire a token using integrated Windows authentication https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-desktop-acquire-token-integrated-windows-authentication
 
-                return true;
-            }
-            catch (MsalUiRequiredException)
-            {
-                return false;
-            }
-        }
-
-        public async Task AcquireTokenAsync(bool silentOnly = false, string? loginHint = null, TimeSpan? timeout = null)
-        {
-            await _authenticationSemaphore.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                await EnsureInitializedAsync().ConfigureAwait(false);
-
-                using var cancellationTokenSource = new CancellationTokenSource();
-                if (timeout.HasValue) cancellationTokenSource.CancelAfter(timeout.Value);
-
-                var previousIdentifier = Authentication?.Account.HomeAccountId.Identifier;
-                var previousAuthentication = Authentication;
-
-                Authentication = await AcquireTokenImplAsync(silentOnly, previousIdentifier, loginHint, cancellationTokenSource.Token).ConfigureAwait(false);
-
-                var accountChanged = !Authentication.Account.HomeAccountId.Equals(previousAuthentication?.Account.HomeAccountId);
-                if (accountChanged)
-                { 
-                    await _pbicloudSettings.RefreshAsync(Authentication.AccessToken).ConfigureAwait(false);
-                }
-
-                //var impersonateTask = System.Security.Principal.WindowsIdentity.RunImpersonatedAsync(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle.InvalidHandle, async () =>
-                //{
-                //    _authenticationResult = await AcquireTokenImplAsync(...);
-                //});
-                //await impersonateTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                _authenticationSemaphore.Release();
-            }
-        }
-
-        private async Task<AuthenticationResult> AcquireTokenImplAsync(bool silentOnly, string? identifier, string? loginHint, CancellationToken cancellationToken)
-        {
-            // Use account used to signed-in in Windows (WAM). WAM will always get an account in the cache so, if we want to have a chance to select the accounts interactively, we need to force the non-account.
-            //identifier = PublicClientApplication.OperatingSystemAccount;
-
-            // Use one of the Accounts known by Windows (WAM), if a null account identifier is provided then force WAM to display the dialog with the accounts
-            var account = await PublicClient.GetAccountAsync(identifier).ConfigureAwait(false);
+            var account = await PublicClient.GetAccountAsync(AuthenticationResult?.Account.Identifier).ConfigureAwait(false);
             var scopes = _pbicloudSettings.CloudEnvironment.AzureADScopes;
 
             try
             {
                 // Try to acquire an access token from the cache, if UI interaction is required, MsalUiRequiredException will be thrown.
-                var authenticationResult = await PublicClient.AcquireTokenSilent(scopes, account).WithExtraQueryParameters(MicrosoftAccountOnlyQueryParameter).ExecuteAsync(cancellationToken).ConfigureAwait(false);
-                return authenticationResult;
+                var msalAuthenticationResult = await PublicClient.AcquireTokenSilent(scopes, account).WithExtraQueryParameters(MicrosoftAccountOnlyQueryParameter).ExecuteAsync(cancellationToken).ConfigureAwait(false);
+                var pbicloudAuthenticationResult = new PBICloudAuthenticationResult(msalAuthenticationResult);
+
+                return pbicloudAuthenticationResult;
 
                 //if ()
                 //{
@@ -154,8 +132,6 @@
             }
             catch (MsalUiRequiredException ex)
             {
-                // Re-throw exception if silent-only token acquisition was requested
-                if (silentOnly) throw;
                 try
                 {
                     // *** EmbeddedWebView requirements ***
@@ -163,7 +139,7 @@
                     // Using 'TargetFramework=net5-windows10.0.17763.0' the framework 'Microsoft.Windows.SDK.NET' is also included as project dependency.
                     // The framework 'Microsoft.Windows.SDK.NET' includes all the WPF(PresentationFramework.dll) and WinForm(System.Windows.Forms.dll) assemblies to the project.
 
-                    var useEmbeddedBrowser = !UserPreferences.Current.UseSystemBrowserForAuthentication;
+                    var useEmbeddedBrowser = (UserPreferences.Current.Experimental?.UseSystemBrowserForAuthentication ?? false) == false;
                     var parameterBuilder = PublicClient.AcquireTokenInteractive(scopes)
                         .WithExtraQueryParameters(MicrosoftAccountOnlyQueryParameter)
                         .WithUseEmbeddedWebView(useEmbeddedBrowser)
@@ -177,8 +153,10 @@
                         parameterBuilder.WithParentActivityOrWindow(mainwindowHwnd);
                     }
 
-                    var authenticationResult = await parameterBuilder.ExecuteAsync(cancellationToken).ConfigureAwait(false);
-                    return authenticationResult;
+                    var msalAuthenticationResult = await parameterBuilder.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+                    var pbicloudAuthenticationResult = new PBICloudAuthenticationResult(msalAuthenticationResult);
+
+                    return pbicloudAuthenticationResult;
                 }
                 catch (MsalException) // ex.ErrorCode => Microsoft.Identity.Client.MsalError
                 {
@@ -187,25 +165,23 @@
             }
         }
 
-        private async Task EnsureInitializedAsync()
+        private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
         {
             if (_publicClient is null)
             {
-                await _publicClientSemaphore.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    if (_publicClient is null)
-                    {
-                        await _pbicloudSettings.InitializeAsync().ConfigureAwait(false);
+                await _pbicloudSettings.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-                        _publicClient = MsalHelper.CreatePublicClientApplication(_pbicloudSettings.CloudEnvironment);
-                    }
-                }
-                finally
-                {
-                    _publicClientSemaphore.Release();
-                }
+                _publicClient = MsalHelper.CreatePublicClientApplication(_pbicloudSettings.CloudEnvironment);
             }
         }
+
+        #region IDisposable
+
+        public void Dispose()
+        {
+            _authenticationSemaphore.Dispose();
+        }
+
+        #endregion
     }
 }

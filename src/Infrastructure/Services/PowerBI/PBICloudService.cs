@@ -3,9 +3,7 @@
     using Sqlbi.Bravo.Infrastructure;
     using Sqlbi.Bravo.Infrastructure.Contracts.PBICloud;
     using Sqlbi.Bravo.Infrastructure.Extensions;
-    using Sqlbi.Bravo.Infrastructure.Services;
     using Sqlbi.Bravo.Models;
-    using Sqlbi.Bravo.Models.AnalyzeModel;
     using Sqlbi.Bravo.Services;
     using System;
     using System.Collections.Generic;
@@ -40,7 +38,7 @@
             PropertyNameCaseInsensitive = false, // required by SharedDatasetModel LastRefreshTime/lastRefreshTime properties
         };
 
-        public static readonly Uri PBIApiUri = new("https://api.powerbi.com");
+        public static readonly Uri PBCommercialApiUri = new("https://api.powerbi.com");
         public static readonly Uri PBIDatasetServerUri = new($"{ PBIDatasetProtocolScheme }://api.powerbi.com");
         public static readonly Uri PBIPremiumServerUri = new($"{ PBIPremiumProtocolScheme }://api.powerbi.com");
 
@@ -68,9 +66,9 @@
         public async Task<string?> GetAccountAvatarAsync()
         {
             _httpClient.DefaultRequestHeaders.Accept.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = AuthenticationHeaderValue.Parse(_authenticationService.PBICloudAuthentication.CreateAuthorizationHeader());
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _authenticationService.PBICloudAuthentication.AccessToken);
 
-            var requestUri = new Uri(PBIApiUri, relativeUri: GetResourceUserPhotoRequestUri.FormatInvariant(_authenticationService.PBICloudAuthentication.Account.Username));
+            var requestUri = new Uri(PBCommercialApiUri, relativeUri: GetResourceUserPhotoRequestUri.FormatInvariant(_authenticationService.PBICloudAuthentication.Account.Username));
             using var response = await _httpClient.GetAsync(requestUri).ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)
@@ -117,9 +115,9 @@
         private async Task<IEnumerable<CloudWorkspace>> GetWorkspacesAsync(CancellationToken cancellationToken)
         {
             _httpClient.DefaultRequestHeaders.Accept.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = AuthenticationHeaderValue.Parse(_authenticationService.PBICloudAuthentication.CreateAuthorizationHeader());
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _authenticationService.PBICloudAuthentication.AccessToken);
 
-            var requestUri = new Uri(PBIApiUri, relativeUri: GetWorkspacesRequestUri);
+            var requestUri = new Uri(PBCommercialApiUri, relativeUri: GetWorkspacesRequestUri);
             using var response = await _httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
@@ -136,7 +134,7 @@
         private async Task<IEnumerable<CloudSharedModel>> GetSharedDatasetsAsync(CancellationToken cancellationToken)
         {
             _httpClient.DefaultRequestHeaders.Accept.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = AuthenticationHeaderValue.Parse(_authenticationService.PBICloudAuthentication.CreateAuthorizationHeader());
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _authenticationService.PBICloudAuthentication.AccessToken);
 
             var requestUri = new Uri(_authenticationService.PBICloudTenantCluster, relativeUri: GetGallerySharedDatasetsRequestUri);
             using var response = await _httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);

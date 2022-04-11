@@ -6,6 +6,7 @@
     using Sqlbi.Bravo.Models;
     using Sqlbi.Bravo.Services;
     using System.Net.Mime;
+    using System.Threading;
     using System.Threading.Tasks;
 
     /// <summary>
@@ -33,12 +34,18 @@
         [HttpGet]
         [ActionName("powerbi/SignIn")]
         [Produces(MediaTypeNames.Application.Json)]
-        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(BravoAccount))]
+        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IBravoAccount))]
         [ProducesDefaultResponseType]
-        public async Task<IActionResult> PowerBISignIn(string? upn)
+        public async Task<IActionResult> PBICloudSignIn(string? upn, CancellationToken cancellationToken)
         {
-            await _authenticationService.PBICloudSignInAsync(userPrincipalName: upn);
-            return Ok(_authenticationService.Account);
+            if (upn is null)
+            {
+                // TODO: get UPN
+                upn = "";
+            }
+
+            await _authenticationService.PBICloudSignInAsync(userPrincipalName: upn, cancellationToken);
+            return Ok(_authenticationService.PBICloudAuthentication.Account);
         }
 
         /// <summary>
@@ -49,9 +56,9 @@
         [ActionName("powerbi/SignOut")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesDefaultResponseType]
-        public async Task<IActionResult> PowerBISignOut()
+        public async Task<IActionResult> PBICloudSignOut(CancellationToken cancellationToken)
         {
-            await _authenticationService.PBICloudSignOutAsync();
+            await _authenticationService.PBICloudSignOutAsync(cancellationToken);
             return Ok();
         }
 
@@ -63,15 +70,15 @@
         [HttpGet]
         [ActionName("GetUser")]
         [Produces(MediaTypeNames.Application.Json)]
-        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(BravoAccount))]
+        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IBravoAccount))]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesDefaultResponseType]
-        public async Task<IActionResult> GetAccount()
+        public async Task<IActionResult> GetPBICloudAccount(CancellationToken cancellationToken)
         {
-            if (await _authenticationService.IsPBICloudSignInRequiredAsync())
+            if (await _authenticationService.IsPBICloudSignInRequiredAsync(cancellationToken))
                 return Unauthorized();
 
-            return Ok(_authenticationService.Account);
+            return Ok(_authenticationService.PBICloudAuthentication.Account);
         }
 
         /// <summary>
@@ -87,9 +94,9 @@
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesDefaultResponseType]
-        public async Task<IActionResult> GetAccountAvatar()
+        public async Task<IActionResult> GetPBICloudAccountAvatar(CancellationToken cancellationToken)
         {
-            if (await _authenticationService.IsPBICloudSignInRequiredAsync())
+            if (await _authenticationService.IsPBICloudSignInRequiredAsync(cancellationToken))
                 return Unauthorized();
 
             var avatar = await _pbicloudService.GetAccountAvatarAsync();

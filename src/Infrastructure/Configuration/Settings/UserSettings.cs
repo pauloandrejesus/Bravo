@@ -1,5 +1,6 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Configuration.Settings
 {
+    using Sqlbi.Bravo.Infrastructure.Models.PBICloud;
     using System.Text.Json;
     using System.Text.Json.Serialization;
 
@@ -17,11 +18,20 @@
         [JsonPropertyName("theme")]
         public ThemeType Theme { get; set; } = ThemeType.Auto;
 
+        [JsonPropertyName("experimental")]
+        public ExperimentalSettings? Experimental { get; set; }
+
         [JsonPropertyName("customOptions")]
         public JsonElement? CustomOptions { get; set; }
+    }
 
-        [JsonIgnore]
-        public bool UseSystemBrowserForAuthentication { get; set; } = false;
+    public class ExperimentalSettings
+    {
+        [JsonPropertyName("useSystemBrowserForAuthentication")]
+        public bool? UseSystemBrowserForAuthentication { get; set; }
+
+        [JsonPropertyName("pbiCloudEnvironment")]
+        public PBICloudEnvironmentType? PBICloudEnvironment { get; set; }
     }
 
     public enum ThemeType

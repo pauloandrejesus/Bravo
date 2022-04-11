@@ -1,11 +1,13 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Helpers
 {
+    using Microsoft.Win32;
     using Sqlbi.Bravo.Infrastructure.Configuration.Settings;
     using Sqlbi.Bravo.Infrastructure.Windows.Interop;
     using Sqlbi.Bravo.Models;
     using System;
     using System.IO;
     using System.Net.Http;
+    using System.Security;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -13,6 +15,42 @@
 
     internal static class CommonHelper
     {
+        public static string? ReadRegistryString(RegistryKey registryKey, string keyName, string valueName)
+        {
+            try
+            {
+                using var registrySubKey = registryKey.OpenSubKey(keyName, writable: false);
+
+                if (registrySubKey is not null)
+                {
+                    var value = registrySubKey.GetValue(valueName, defaultValue: null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                    if (value is not null)
+                    {
+                        var valueKind = registrySubKey.GetValueKind(valueName);
+                        if (valueKind == RegistryValueKind.String)
+                        {
+                            var valueString = (string)value;
+                            return valueString;
+                        }
+                    }
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            catch (SecurityException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+
+            return null;
+        }
+
         public static User32.KeyState GetKeyState(Keys key)
         {
             var state = User32.KeyState.None;

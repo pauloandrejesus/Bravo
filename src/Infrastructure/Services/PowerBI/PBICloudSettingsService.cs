@@ -1,8 +1,11 @@
 ﻿namespace Sqlbi.Bravo.Infrastructure.Services.PowerBI
 {
+    using Microsoft.Win32;
     using Sqlbi.Bravo.Infrastructure;
+    using Sqlbi.Bravo.Infrastructure.Configuration;
     using Sqlbi.Bravo.Infrastructure.Contracts.PBICloud;
     using Sqlbi.Bravo.Infrastructure.Extensions;
+    using Sqlbi.Bravo.Infrastructure.Helpers;
     using Sqlbi.Bravo.Infrastructure.Models.PBICloud;
     using Sqlbi.Bravo.Models;
     using System;
@@ -22,28 +25,29 @@
 
         TenantCluster TenantCluster { get; }
 
-        Task InitializeAsync();
+        Task InitializeAsync(CancellationToken cancellationToken);
 
-        Task RefreshAsync(string accessToken);
+        Task RefreshAsync(string accessToken, CancellationToken cancellationToken);
     }
 
     internal class PBICloudSettingsService : IPBICloudSettingsService
     {
-        private const string GlobalServiceEnvironmentsDiscoverUrl = "powerbi/globalservice/v201606/environments/discover?client=powerbi-msolap";
+        private const string GlobalServiceEnvironmentsDiscoverUrl = "powerbi/globalservice/v201606/environments/discover";
         private const string GlobalServiceGetOrInsertClusterUrisByTenantlocationUrl = "spglobalservice/GetOrInsertClusterUrisByTenantlocation";
 
         private readonly static SemaphoreSlim _initializeSemaphore = new(1, 1);
+        private readonly Lazy<Uri> _environmentDiscoverUri;
         private readonly HttpClient _httpClient;
 
-        private GlobalService? _globalService;
         private IPBICloudEnvironment? _cloudEnvironment;
+        private GlobalService? _globalService;
         private TenantCluster? _tenantCluster;
 
         public PBICloudSettingsService()
         {
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Accept.Clear();
-            _httpClient.BaseAddress = PBICloudService.PBIApiUri;
+            _environmentDiscoverUri = new(() => GetEnvironmentDiscoverUri());
         }
 
         public IPBICloudEnvironment CloudEnvironment
@@ -65,21 +69,21 @@
         }
 
         /// <remarks>Refresh is required only if the login account has changed</remarks>
-        public async Task RefreshAsync(string accessToken)
+        public async Task RefreshAsync(string accessToken, CancellationToken cancellationToken)
         {
-            _tenantCluster = await GetTenantClusterAsync(accessToken).ConfigureAwait(false);
+            _tenantCluster = await GetTenantClusterAsync(accessToken, cancellationToken).ConfigureAwait(false);
             //_localClientSites = Contracts.PBIDesktop.LocalClientSites.Create();
         }
 
-        public async Task InitializeAsync()
+        public async Task InitializeAsync(CancellationToken cancellationToken)
         {
             if (_globalService is null || _cloudEnvironment is null)
             {
-                await _initializeSemaphore.WaitAsync().ConfigureAwait(false);
+                await _initializeSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
                     if (_globalService is null)
-                        _globalService = await InitializeGlobalServiceAsync().ConfigureAwait(false);
+                        _globalService = await InitializeGlobalServiceAsync(cancellationToken).ConfigureAwait(false);
 
                     if (_cloudEnvironment is null)
                         _cloudEnvironment = InitializeCloudEnvironment();
@@ -91,18 +95,18 @@
             }
         }
 
-        private async Task<GlobalService> InitializeGlobalServiceAsync()
+        private async Task<GlobalService> InitializeGlobalServiceAsync(CancellationToken cancellationToken)
         {
             var securityProtocol = ServicePointManager.SecurityProtocol;
             try
             {
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, GlobalServiceEnvironmentsDiscoverUrl);
-                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Post, _environmentDiscoverUri.Value);
+                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
-                var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
                 if (AppEnvironment.IsDiagnosticLevelVerbose)
                     AppEnvironment.AddDiagnostics(DiagnosticMessageType.Json, name: $"{ nameof(PBICloudSettingsService) }.{ nameof(InitializeGlobalServiceAsync) }", content);
@@ -121,7 +125,7 @@
 
         private IPBICloudEnvironment InitializeCloudEnvironment()
         {
-            var pbicloudEnvironmentType = PBICloudEnvironmentType.Public;
+            var pbicloudEnvironmentType = UserPreferences.Current.Experimental?.PBICloudEnvironment ?? PBICloudEnvironmentType.Public;
             var globalServiceCloudName = pbicloudEnvironmentType.ToGlobalServiceCloudName();
             var globalServiceEnvironment = _globalService?.Environments?.SingleOrDefault((c) => globalServiceCloudName.EqualsI(c.CloudName));
 
@@ -135,17 +139,17 @@
             return pbicloudEnvironment;
         }
 
-        private async Task<TenantCluster> GetTenantClusterAsync(string accessToken)
+        private async Task<TenantCluster> GetTenantClusterAsync(string accessToken, CancellationToken cancellationToken)
         {
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
             using var request = new HttpRequestMessage(HttpMethod.Put, GlobalServiceGetOrInsertClusterUrisByTenantlocationUrl);
             request.Content = new StringContent(string.Empty, Encoding.UTF8, MediaTypeNames.Application.Json);
 
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
-            var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             if (AppEnvironment.IsDiagnosticLevelVerbose)
                 AppEnvironment.AddDiagnostics(DiagnosticMessageType.Json, name: $"{ nameof(PBICloudSettingsService) }.{ nameof(GetTenantClusterAsync) }", content);
@@ -155,6 +159,52 @@
                 BravoUnexpectedException.ThrowIfNull(tenantCluster);
             }
             return tenantCluster;
+        }
+
+        private static Uri GetEnvironmentDiscoverUri()
+        {
+            const string PowerBIDiscoveryUrl = "PowerBIDiscoveryUrl";
+
+            // Values from discover v202003
+            string[] TruestedDiscoverUriString = new[]
+            {
+                PBICloudService.PBCommercialApiUri.AbsoluteUri,                 // PBICloudEnvironmentType.Public
+                "https://api.powerbi.cn",                                       // PBICloudEnvironmentType.China
+                "https://api.powerbi.de",                                       // PBICloudEnvironmentType.Germany
+                "https://api.powerbigov.us",                                    // PBICloudEnvironmentType.USGov
+                "https://api.high.powerbigov.us",                               // PBICloudEnvironmentType.USGovHigh
+                "https://api.mil.powerbigov.us",                                // PBICloudEnvironmentType.USGovMil
+                //"https://biazure-int-edog-redirect.analysis-df.windows.net",  // disabled PpeCloud
+                //"https://api.powerbi.eaglex.ic.gov",                          // disabled USNatCloud
+                //"https://api.powerbi.microsoft.scloud",                       // disabled USSecCloud
+            };
+
+            // https://docs.microsoft.com/en-us/power-bi/enterprise/service-govus-overview#sign-in-to-power-bi-for-us-government
+            // https://github.com/microsoft/Federal-Business-Applications/tree/main/whitepapers/power-bi-registry-settings
+
+            var uriString = CommonHelper.ReadRegistryString(Registry.LocalMachine, keyName: "SOFTWARE\\Microsoft\\Microsoft Power BI", valueName: PowerBIDiscoveryUrl);
+
+            if (uriString is null)
+                uriString = CommonHelper.ReadRegistryString(Registry.LocalMachine, keyName: "SOFTWARE\\WOW6432Node\\Policies\\Microsoft\\Microsoft Power BI", valueName: PowerBIDiscoveryUrl);
+
+            if (uriString is not null)
+            {
+                if (TruestedDiscoverUriString.Contains(uriString, StringComparer.OrdinalIgnoreCase) == false)
+                {
+                    throw new BravoUnexpectedInvalidOperationException($"Untrusted { nameof(PowerBIDiscoveryUrl) } value ({ uriString })");
+                }
+            }
+
+            if (uriString is null)
+                uriString = PBICloudService.PBCommercialApiUri.AbsoluteUri;
+
+            var uriBuilder = new UriBuilder(uriString)
+            {
+                Path = GlobalServiceEnvironmentsDiscoverUrl,
+                Query = "client=powerbi-msolap",
+            };
+
+            return uriBuilder.Uri;
         }
     }
 }

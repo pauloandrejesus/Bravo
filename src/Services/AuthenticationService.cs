@@ -1,25 +1,23 @@
 ﻿namespace Sqlbi.Bravo.Services
 {
-    using Microsoft.Identity.Client;
     using Sqlbi.Bravo.Infrastructure;
+    using Sqlbi.Bravo.Infrastructure.Models;
     using Sqlbi.Bravo.Infrastructure.Services.PowerBI;
-    using Sqlbi.Bravo.Models;
     using System;
+    using System.Threading;
     using System.Threading.Tasks;
 
     public interface IAuthenticationService
     {
-        BravoAccount? Account { get; }
-
         Uri PBICloudTenantCluster { get; }
 
-        AuthenticationResult PBICloudAuthentication { get; }
+        IAuthenticationResult PBICloudAuthentication { get; }
 
-        Task<bool> IsPBICloudSignInRequiredAsync();
+        Task<bool> IsPBICloudSignInRequiredAsync(CancellationToken cancellationToken);
 
-        Task PBICloudSignInAsync(string? userPrincipalName = null);
+        Task PBICloudSignInAsync(string userPrincipalName, CancellationToken cancellationToken);
 
-        Task PBICloudSignOutAsync();
+        Task PBICloudSignOutAsync(CancellationToken cancellationToken);
     }
 
     internal class AuthenticationService : IAuthenticationService
@@ -31,28 +29,20 @@
             _pbicloudAuthenticationService = pbicloudAuthenticationService;
         }
 
-        public BravoAccount? Account { get; private set; }
-
         public Uri PBICloudTenantCluster => _pbicloudAuthenticationService.TenantCluster;
 
-        public AuthenticationResult PBICloudAuthentication
+        public IAuthenticationResult PBICloudAuthentication
         {
             get
             {
-                BravoUnexpectedException.ThrowIfNull(_pbicloudAuthenticationService.Authentication);
-                return _pbicloudAuthenticationService.Authentication;
+                BravoUnexpectedException.ThrowIfNull(_pbicloudAuthenticationService.AuthenticationResult);
+                return _pbicloudAuthenticationService.AuthenticationResult;
             }
         }
 
-        public async Task<bool> IsPBICloudSignInRequiredAsync()
+        public async Task<bool> IsPBICloudSignInRequiredAsync(CancellationToken cancellationToken)
         {
-            var refreshSucceeded = await _pbicloudAuthenticationService.RefreshTokenAsync().ConfigureAwait(false);
-            if (refreshSucceeded)
-            {
-                RefreshAccount();
-                return false;  // No SignIn required - cached token is valid
-            }
-            else
+            if (_pbicloudAuthenticationService.AuthenticationResult is null)
             {
                 // SignIn required - an interaction is required with the end user of the application, for instance:
                 // - no refresh token was in the cache
@@ -60,47 +50,31 @@
                 // - the user needs to perform two factor auth
                 return true;
             }
+
+            if (_pbicloudAuthenticationService.AuthenticationResult.IsExpired)
+            {
+                await PBICloudSignInAsync(_pbicloudAuthenticationService.AuthenticationResult.Account.UserPrincipalName, cancellationToken).ConfigureAwait(false);
+            }
+
+            return false;  // No SignIn required - cached token is valid
         }
 
-        public async Task PBICloudSignInAsync(string? loginHint = null)
+        public async Task PBICloudSignInAsync(string userPrincipalName, CancellationToken cancellationToken)
         {
-            Account = null;
-
             try
             {
-                await _pbicloudAuthenticationService.AcquireTokenAsync(silent: false, loginHint, timeout: AppEnvironment.MSALSignInTimeout).ConfigureAwait(false);
+                await _pbicloudAuthenticationService.SignInAsync(userPrincipalName, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 throw new BravoException(BravoProblem.SignInMsalTimeoutExpired);
             }
-
-            RefreshAccount();
         }
 
-        public async Task PBICloudSignOutAsync()
+        public async Task PBICloudSignOutAsync(CancellationToken cancellationToken)
         {
-            Account = null;
-
-            await _pbicloudAuthenticationService.ClearTokenCacheAsync().ConfigureAwait(false);
-
-            BravoUnexpectedException.Assert(_pbicloudAuthenticationService.Authentication is null);
-        }
-
-        private void RefreshAccount()
-        {
-            var currentAccountChanged = PBICloudAuthentication.Account.HomeAccountId.Identifier.Equals(Account?.Identifier) == false;
-            if (currentAccountChanged)
-            {
-                var account = new BravoAccount
-                {
-                    Identifier = PBICloudAuthentication.Account.HomeAccountId.Identifier,
-                    UserPrincipalName = PBICloudAuthentication.Account.Username,
-                    Username = PBICloudAuthentication.ClaimsPrincipal.FindFirst((c) => c.Type == "name")?.Value,
-                };
-
-                Account = account;
-            }
+            await _pbicloudAuthenticationService.SignOutAsync(cancellationToken).ConfigureAwait(false);
+            BravoUnexpectedException.Assert(_pbicloudAuthenticationService.AuthenticationResult is null);
         }
     }
 }

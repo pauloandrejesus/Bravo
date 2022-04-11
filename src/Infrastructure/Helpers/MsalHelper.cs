@@ -10,7 +10,7 @@
 
         public static IPublicClientApplication CreatePublicClientApplication(IPBICloudEnvironment pbicloudEnvironment)
         {
-            var useEmbeddedBrowser = !UserPreferences.Current.UseSystemBrowserForAuthentication;
+            var useEmbeddedBrowser = (UserPreferences.Current.Experimental?.UseSystemBrowserForAuthentication ?? false) == false;
             var redirectUri = (useEmbeddedBrowser ? pbicloudEnvironment.AzureADRedirectAddress : SystemBrowserRedirectUri);
 
             var publicClient = PublicClientApplicationBuilder.Create(pbicloudEnvironment.AzureADClientId)

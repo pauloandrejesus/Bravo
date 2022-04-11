@@ -214,25 +214,15 @@
 
         private static bool IsRunningFromInstallFolder(RegistryKey registryKey)
         {
-            if (IsPackagedAppInstance)
-                return false;
-
-            using var registrySubKey = registryKey.OpenSubKey(ApplicationRegistryKeyName, writable: false);
-
-            if (registrySubKey is not null)
+            if (!IsPackagedAppInstance)
             {
-                var value = registrySubKey.GetValue(ApplicationRegistryApplicationInstallFolderValue, defaultValue: null, RegistryValueOptions.DoNotExpandEnvironmentNames);
-                if (value != null)
+                var valueString = CommonHelper.ReadRegistryString(registryKey, keyName: ApplicationRegistryKeyName, valueName: ApplicationRegistryApplicationInstallFolderValue);
+                if (valueString is not null)
                 {
-                    var valueKind = registrySubKey.GetValueKind(ApplicationRegistryApplicationInstallFolderValue);
-                    if (valueKind == RegistryValueKind.String)
-                    {
-                        var valueString = (string)value;
-                        var installPath = CommonHelper.NormalizePath(valueString);
-                        var runningPath = CommonHelper.NormalizePath(AppContext.BaseDirectory);
+                    var installPath = CommonHelper.NormalizePath(valueString);
+                    var runningPath = CommonHelper.NormalizePath(AppContext.BaseDirectory);
 
-                        return installPath == runningPath;
-                    }
+                    return installPath == runningPath;
                 }
             }
 
